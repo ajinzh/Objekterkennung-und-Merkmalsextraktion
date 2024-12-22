@@ -1,0 +1,216 @@
+#Numpy,Sys, Matplotlib Imports, display widgets correctly 
+import sys
+sys.path.insert(0,'./Bilder')
+sys.path.insert(0,'../ient_python')
+%matplotlib widget
+import numpy as np
+import math
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+from matplotlib.pyplot import figure, draw, pause, close
+from matplotlib.widgets import RectangleSelector
+
+#iPython Imports
+from ipywidgets import widgets,interact
+import IPython.display as ip
+from matplotlib_inline.backend_inline import set_matplotlib_formats
+set_matplotlib_formats('pdf', 'png')
+from IPython.display import Video
+
+#RWTH imports
+import rwth_nb.plots.mpl_decorations as rwth_plt
+import rwth_nb.misc.feedback as rwth_feedback
+
+#Scikit-Image, cv2 Imports
+from skimage.filters import threshold_otsu
+from skimage.morphology import label, square,binary_erosion, binary_dilation, disk
+from skimage.measure import regionprops
+from skimage.draw import rectangle_perimeter
+from skimage.io import imread, imshow
+from skimage.color import rgb2gray
+from skimage.transform import rotate, rescale
+from scipy.ndimage import binary_fill_holes
+from cv2 import warpAffine, getRotationMatrix2D, resize, INTER_LINEAR
+
+
+# Suppress warning
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
+plt.close('all')
+plt.rcParams.update({'figure.max_open_warning': 0})
+
+#lade des Bilds
+from PIL import Image
+import matplotlib.pyplot as plt
+img = imread("Bilder/Buchstaben.png")
+fig, ax = plt.subplots(1,1)
+ax.imshow(img, cmap='gray');
+ax.set_axis_off();
+ax.set_title('Buchstaben');
+
+#Histogramm
+fig2, ax = plt.subplots()
+rwth_plt.axis(ax);
+img_array = np.array(img).flatten()
+img_gray = rgb2gray(img[0:400, 0:800, 0:3])
+ax.hist(img_array, bins=32, color="gray", edgecolor="black")
+
+fig1 = figure(figsize=(10, 6));
+ax1 = fig1.gca();
+
+@widgets.interact(t=widgets.IntSlider(min=50, max=240, continuous_update=True))#创建滑块
+def update_plot(t):
+    if ax1.lines: # check if lines exist
+        ax1.set_data(img_gray*255>t);
+        ax1.draw()
+    else:
+        ax1.imshow(img_gray*255>t, cmap= 'gray')
+        ax1.set_title("Finden der Binarisierungsschwelle")
+        ax1.axis('off')
+img_bin = img_gray < threshold_otsu(img_gray)
+fig, ax = plt.subplots(1,1, figsize=(10,10))
+ax.imshow(img_bin, cmap='gray');
+ax.set_axis_off();
+ax.set_title('Binarisiertes Bild nach Otsu');
+
+#降噪
+img_erode1 = binary_erosion(img_bin, square(3))
+img_erode2 = binary_erosion(img_bin, square(5))
+img_erode3 = binary_erosion(img_bin, square(10))
+img_erode4 = binary_erosion(img_bin, disk(5))
+fig, ax = plt.subplots(2,2,sharex='all', sharey='all', figsize=(14,14))
+ax[0,0].imshow(img_erode1,cmap='gray')
+ax[1,0].imshow(img_erode2,cmap='gray')
+ax[0,1].imshow(img_erode3,cmap='gray')
+ax[1,1].imshow(img_erode4,cmap='gray')
+for axs in ax.flat:
+    axs.set_axis_off()
+img_dil1 = binary_dilation(img_erode1,square(3))
+img_dil2 = binary_dilation(img_erode2,square(5))
+img_dil3 = binary_dilation(img_erode3,square(10))
+img_dil4 = binary_dilation(img_erode4,disk(5))
+fig, ax = plt.subplots(2,2,sharex='all', sharey='all', figsize=(14,14))
+ax[0,0].imshow(img_dil1,cmap='gray')
+ax[1,0].imshow(img_dil2,cmap='gray')
+ax[0,1].imshow(img_dil3,cmap='gray')
+ax[1,1].imshow(img_dil4,cmap='gray')
+for axs in ax.flat:
+    axs.set_axis_off()
+img_label = label(img_dil1)
+fig, ax = plt.subplots(1,1, figsize=(10,10))
+ax.imshow(img_label, cmap='gray');
+ax.set_axis_off();
+ax.set_title('labeled image');regions = regionprops(img_label)
+minr, minc, maxr, maxc = regions[0].bbox # speichere die 4 zurückgegebenen Koordinaten der Bounding-Box, Buchstabe A
+fig, ax = plt.subplots(figsize=(10,10))
+ax.axis('off')
+ax.imshow(img_label, cmap= 'gray')
+ax.set_title('Labeled Image with Bounding-Box')
+rect = mpatches.Rectangle((minc, minr), maxc - minc, maxr - minr, fill=False, edgecolor='yellow', linewidth=2)
+ax.add_patch(rect)
+plt.show()
+
+#剪切
+img_cropped = img_label[minr-2:maxr+2, minc-2:maxc+2] #r垂直
+fig, ax = plt.subplots(1,1)
+ax.imshow(img_cropped, cmap='gray');
+ax.set_axis_off();
+ax.set_title('cropped image');
+
+#Homogenität berechnen
+img_filled = binary_fill_holes(img_cropped)
+img_tmp = binary_dilation(img_filled)
+img_contour = img_tmp^img_filled
+fig, ax = plt.subplots(1,2,sharex='all', sharey='all', figsize=(10,10))
+ax[0].imshow(img_contour,cmap='gray')
+ax[0].set_title('Kontur');
+ax[1].set_title('Filled');
+ax[1].imshow(img_filled,cmap='gray')
+for axs in ax.flat:
+    axs.set_axis_off()
+fig.suptitle('Homogenität');
+
+
+kernelX = square(3)
+
+def ient_homogenity(contour,image):
+    homogenity = (np.sum(contour)*np.sum(contour))/np.sum(image)
+    print('Homogenität: ',homogenity)
+    
+
+# load the cropped image embedded in bigger black img to avoid bound-crops and overlapping by neighboured characters
+a_in_black = (imread("Bilder/A_in_black.png")).astype(bool)
+
+# Rotate image correctly
+def rotate_image(mat, angle):
+    height, width = mat.shape[:2] 
+    image_center = (width/2, height/2)
+
+    rotation_mat = getRotationMatrix2D(image_center, angle, 1.)
+
+    abs_cos = abs(rotation_mat[0,0]) 
+    abs_sin = abs(rotation_mat[0,1])
+
+    bound_w = int(height * abs_sin + width * abs_cos)
+    bound_h = int(height * abs_cos + width * abs_sin)
+
+    rotation_mat[0, 2] += bound_w/2 - image_center[0]
+    rotation_mat[1, 2] += bound_h/2 - image_center[1]
+
+    rotated_mat = warpAffine(mat, rotation_mat, (bound_w, bound_h))
+    return rotated_mat
+
+
+fig, ax = plt.subplots(1,2,figsize=(10, 6))
+
+# Rotate Slider
+@widgets.interact(d=widgets.IntSlider(min=0, max=360, continuous_update=True))
+def update_rotation(d):
+        rotated_a = label(rotate_image(a_in_black.astype(np.double), d))
+        regions = regionprops(rotated_a)
+        boxes = np.array([label['BoundingBox']
+                  for label in regions])
+        rotated_a_cropped = rotated_a[boxes[0][0]-1:boxes[0][2]+1, boxes[0][1]-1:boxes[0][3]+1]
+    
+        if ax[0].lines: # check if lines exist
+            ax[0].set_data(rotated_a_cropped);
+            ax[0].draw()
+
+        else:
+            ax[0].imshow(rotated_a_cropped, cmap= 'gray')
+            ax[0].set_title("Rotation des Buchstaben")
+            ax[0].axis('off')
+            
+        print('Winkel: ',d, '°')
+        rotated_filled = binary_fill_holes(rotated_a_cropped)
+        rotated_contour = rotated_filled.astype(np.double) - binary_erosion(rotated_filled, kernelX)
+        ient_homogenity(rotated_contour,rotated_filled)
+
+#Resize Slider
+@widgets.interact(r=widgets.FloatSlider(min=0.01, max=5, step=0.05,continuous_update=False))
+def update_resize(r):
+        # parameter for resizing
+        width = int(a_in_black.shape[1] * r)
+        height = int(a_in_black.shape[0] * r)
+        dsize = (width, height)
+        # resizing
+        resized_image= resize(a_in_black.astype(np.double),dsize,interpolation =INTER_LINEAR)#INTER_NEAREST
+        # crop to get A with little margin and cast to boolean
+        resized_image_a = label(resized_image.astype(np.double))
+        regions = regionprops(resized_image_a)
+        boxes = np.array([label['BoundingBox']
+                for label in regions])
+        resized_image_cropped = resized_image_a[boxes[0][0]-1:boxes[0][2]+1, boxes[0][1]-1:boxes[0][3]+1].astype(bool)
+        # plotting
+        if ax[1].lines: # check if lines exist, if so: just update data
+            ax[1].set_data(resized_image_cropped);
+            ax[1].draw()
+        else: # plot whole figure
+            ax[1].imshow((resized_image_cropped), cmap= 'gray')
+            ax[1].set_title("Skalierung des Buchstaben")
+            ax[1].axis('off')
+        print('Skalierungsfaktor: ',r)
+        # homogenity
+        scaled_filled = binary_fill_holes(resized_image)
+        scaled_contour = scaled_filled.astype(np.double) - binary_erosion(scaled_filled, kernelX)
+        ient_homogenity(scaled_contour,scaled_filled)
